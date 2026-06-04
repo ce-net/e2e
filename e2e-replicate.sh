@@ -12,6 +12,7 @@
 # the next tier, and a sync-only cap is DENIED spawn.
 set -u
 export CE_NO_AUTOBOOTSTRAP=1
+export CE_API_TOKEN="${CE_API_TOKEN:-e2e-shared-token}"
 
 CE=${CE_BIN:-$HOME/ce-net/ce/target/release/ce}
 RDEV=${RDEV_BIN:-$HOME/ce-net/rdev/target/release/rdev}
@@ -39,16 +40,20 @@ echo "$R_ID  # org root R" > "$ROOT/roots"
 [ ${#R_ID} -eq 64 ] && [ ${#A_ID} -eq 64 ] && [ ${#B_ID} -eq 64 ] && [ ${#C_ID} -eq 64 ] && ok "R,A,B,C identities" || { bad "identities"; exit 1; }
 
 say "start nodes A,B,C (B,C bootstrap from A)"
+# mDNS is off (hermetic) so peers connect only via explicit bootstrap. Mirror the replication
+# tree A->B->C so each hop has a direct connection for its AppRequest (B->C needs B<->C directly).
 A_ADDR="/ip4/127.0.0.1/tcp/4101/p2p/$A_PEER"
+B_ADDR="/ip4/127.0.0.1/tcp/4102/p2p/$(peer_of "$ROOT/B")"
 "$CE" --data-dir "$ROOT/A" start --no-mdns --port 4101 --api-port 8901 --no-mine >"$ROOT/A.log" 2>&1 & PIDS+=($!)
 up 8901 || { bad "node A up"; cat "$ROOT/A.log"; exit 1; }
 "$CE" --data-dir "$ROOT/B" start --no-mdns --port 4102 --api-port 8902 --no-mine --bootstrap "$A_ADDR" >"$ROOT/B.log" 2>&1 & PIDS+=($!)
-"$CE" --data-dir "$ROOT/C" start --no-mdns --port 4103 --api-port 8903 --no-mine --bootstrap "$A_ADDR" >"$ROOT/C.log" 2>&1 & PIDS+=($!)
+up 8902 || { bad "node B up"; exit 1; }
+"$CE" --data-dir "$ROOT/C" start --no-mdns --port 4103 --api-port 8903 --no-mine --bootstrap "$B_ADDR" >"$ROOT/C.log" 2>&1 & PIDS+=($!)
 up 8902 && up 8903 && ok "nodes A,B,C up" || { bad "nodes up"; exit 1; }
 
 say "rdev serve on B and C (accepting org root R)"
-HOME="$ROOT/Bhome" RDEV_ROOTS="$ROOT/roots" "$RDEV" --node http://127.0.0.1:8902 serve >"$ROOT/rdevB.log" 2>&1 & PIDS+=($!)
-HOME="$ROOT/Chome" RDEV_ROOTS="$ROOT/roots" "$RDEV" --node http://127.0.0.1:8903 serve >"$ROOT/rdevC.log" 2>&1 & PIDS+=($!)
+HOME="$ROOT/Bhome" RDEV_SPAWN_ALLOW=sh RDEV_ROOTS="$ROOT/roots" "$RDEV" --node http://127.0.0.1:8902 serve >"$ROOT/rdevB.log" 2>&1 & PIDS+=($!)
+HOME="$ROOT/Chome" RDEV_SPAWN_ALLOW=sh RDEV_ROOTS="$ROOT/roots" "$RDEV" --node http://127.0.0.1:8903 serve >"$ROOT/rdevC.log" 2>&1 & PIDS+=($!)
 sleep 2
 grep -q "1 configured root" "$ROOT/rdevB.log" && grep -q "1 configured root" "$ROOT/rdevC.log" && ok "rdev serve loaded the org root on B and C" || bad "rdev serve root load"
 

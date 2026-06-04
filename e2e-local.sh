@@ -4,6 +4,7 @@
 # Docker-free path (sync/delete). exec/swarm are covered by their unit tests.
 set -u
 export CE_NO_AUTOBOOTSTRAP=1
+export CE_API_TOKEN="${CE_API_TOKEN:-e2e-shared-token}"
 
 CE=${CE_BIN:-$HOME/ce-net/ce/target/release/ce}
 RDEV=${RDEV_BIN:-$HOME/ce-net/rdev/target/release/rdev}
