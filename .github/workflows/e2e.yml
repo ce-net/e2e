@@ -1,0 +1,41 @@
+name: e2e
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'   # weekly, Monday 06:00 UTC
+jobs:
+  e2e:
+    name: live multi-node end-to-end + adversarial
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout e2e
+        uses: actions/checkout@v4
+      - name: Checkout ce
+        uses: actions/checkout@v4
+        with: { repository: ce-net/ce, path: _ce }
+      - name: Checkout rdev
+        uses: actions/checkout@v4
+        with: { repository: ce-net/rdev, path: _rdev }
+      - name: Checkout replicator
+        uses: actions/checkout@v4
+        with: { repository: ce-net/replicator, path: _replicator }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build binaries
+        run: |
+          (cd _ce && cargo build --release -p ce)
+          (cd _rdev && cargo build --release)
+          (cd _replicator && cargo build --release)
+      - name: Run end-to-end + adversarial tests
+        env:
+          CE_BIN: ${{ github.workspace }}/_ce/target/release/ce
+          RDEV_BIN: ${{ github.workspace }}/_rdev/target/release/rdev
+          REPL_BIN: ${{ github.workspace }}/_replicator/target/release/replicator
+        run: |
+          chmod +x *.sh
+          ./e2e-local.sh
+          ./e2e-replicate.sh
+          ./e2e-attack.sh 6 40 12
