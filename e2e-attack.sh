@@ -3,9 +3,10 @@
 # - Honest mesh: N ephemeral (in-RAM) miners, mDNS-isolated, sharing one chain.
 # - Attacks:
 #     A) API takeover  -> mutating API without the token must be rejected (401), bound to loopback.
-#     B) Private-fork rewrite / free-mint -> an attacker mines a private chain (self-minting credits),
-#        then rejoins. Work-based fork choice must reject the lighter fork: the attacker adopts the
-#        heavier honest chain and its self-minted credits vanish (no double-spend / no free money).
+#     B) Competing private fork -> an attacker mines a private chain, then rejoins. The network must
+#        RE-CONVERGE to one chain and honest must never regress (no permanent split, no history
+#        rewrite). The decisive "forged/no-work chain is rejected" proof is the evil-fork test
+#        (kept private). At uniform test difficulty a lone stock node ties the mesh's block rate.
 # Everything is in-RAM (--ephemeral) and mDNS-isolated (--no-mdns) so it can't touch the live mesh.
 set -u
 CE=${CE_BIN:-$HOME/ce-net/ce/target/release/ce}
