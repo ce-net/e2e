@@ -18,9 +18,14 @@ reproducible by anyone: clone the repos, build, run.
 | `e2e-local.sh` | Two nodes peer over the mesh; `ce grant` issues a capability; `rdev push`/`rm` move files over the mesh; **ce-cap enforces** auth (no-cap rejected, path-caveat blocks escapes). |
 | `e2e-replicate.sh` | A 3-node fleet with a shared **org root**; a seed **delegates an attenuated capability** down the tree and `rdev/spawn`s a host process on each hop — recursive self-replication, rooted and attenuating. A `sync`-only cap is **denied** spawn. |
 | `e2e-attack.sh` | Stands up an in-RAM mining mesh and attacks it: **API takeover** (mutating calls without the token → 401, loopback-bound), **minority private-fork rewrite + self-mint** (rejected by work-based fork choice; honest chain never regresses), and on-demand **chain dump** to disk. |
+| `e2e-worker.sh` | The **native headless worker** (`ce-worker`, no browser) connects to `ce-hub`, advertises its cores, **executes a pushed WASM module** (exact results), **auto-reconnects** after a hub restart, and is **pruned** from the live stats on disconnect. |
+| `e2e-gateway.sh` | The **ce-net.com hosting dogfood**: a site served straight from **content-addressed CE blobs** via the `ce-storage` gateway — byte-exact integrity (incl. a 256 KB binary round-trip through chunk split/reassembly), `Range` (206), correct content-types, and **default-deny 404** for unknown bucket/key. |
+| `e2e-apps.sh` | Fast cross-repo smoke: every CE app's own offline selftest (`ce-worker`, `ce-gov` demos, `ce-tabnet` pipeline selftest, `ce-sched`/`ce-bench` import + parse). Node-only, no network. |
+| `e2e-prod.sh` | **Live** smoke + **security invariants** against the real relay (`ce-net.com`): public pages serve; the value/write API is **not** internet-exposed; node/hub/gateway ports (8844/8970/9000) are **not reachable** (only 80/4001); the site is served through the storage gateway with a **zero-downtime static fallback**; and the mesh actually computes a pushed task. *(Hits production — runs on schedule/dispatch, not on every push.)* |
 
-All tests are **hermetic**: nodes run with `CE_NO_AUTOBOOTSTRAP=1`, `--no-mdns`, and (where
-relevant) `--ephemeral` (in-RAM), so they never touch the live `ce-net.com` network or your disk.
+All hermetic tests run with `CE_NO_AUTOBOOTSTRAP=1`, `--no-mdns`, and (where relevant) `--ephemeral`
+(in-RAM), on loopback only — they never touch the live `ce-net.com` network or your disk. Every
+suite skips cleanly (exit 0) when an optional binary (`HUB_BIN`, `CE_STORAGE_BIN`, …) is absent.
 
 ## Run it
 

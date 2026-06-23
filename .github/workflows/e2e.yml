@@ -5,37 +5,83 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '0 6 * * 1'   # weekly, Monday 06:00 UTC
+
 jobs:
+  # Hermetic multi-process suite: stands up real local nodes/apps on loopback (never touches
+  # ce-net.com) and asserts behaviour + security end to end. All repos are checked out as
+  # siblings under ce-net/ so the path-deps in ce-storage/ce-expose (../ce-rs, ../ce/...) resolve.
   e2e:
     name: live multi-node end-to-end + adversarial
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
+    env:
+      CE_BIN:         ${{ github.workspace }}/ce-net/ce/target/release/ce
+      RDEV_BIN:       ${{ github.workspace }}/ce-net/rdev/target/release/rdev
+      REPL_BIN:       ${{ github.workspace }}/ce-net/replicator/target/release/replicator
+      HUB_BIN:        ${{ github.workspace }}/ce-net/web/ce-hub/target/release/ce-hub
+      CE_STORAGE_BIN: ${{ github.workspace }}/ce-net/ce-storage/target/release/ce-storage
+      WORKER_JS:      ${{ github.workspace }}/ce-net/ce-worker/worker.js
+      WORKER_DIR:     ${{ github.workspace }}/ce-net/ce-worker
+      GOV_DIR:        ${{ github.workspace }}/ce-net/ce-gov
+      TABNET_DIR:     ${{ github.workspace }}/ce-net/ce-tabnet
+      SCHED_DIR:      ${{ github.workspace }}/ce-net/ce-sched
+      BENCH_DIR:      ${{ github.workspace }}/ce-net/ce-bench
     steps:
-      - name: Checkout e2e
-        uses: actions/checkout@v4
-      - name: Checkout ce
-        uses: actions/checkout@v4
-        with: { repository: ce-net/ce, path: _ce }
-      - name: Checkout rdev
-        uses: actions/checkout@v4
-        with: { repository: ce-net/rdev, path: _rdev }
-      - name: Checkout replicator
-        uses: actions/checkout@v4
-        with: { repository: ce-net/replicator, path: _replicator }
+      - { name: Checkout e2e,        uses: actions/checkout@v4, with: { path: ce-net/e2e } }
+      - { name: Checkout ce,         uses: actions/checkout@v4, with: { repository: ce-net/ce,         path: ce-net/ce } }
+      - { name: Checkout ce-rs,      uses: actions/checkout@v4, with: { repository: ce-net/ce-rs,      path: ce-net/ce-rs } }
+      - { name: Checkout ce-storage, uses: actions/checkout@v4, with: { repository: ce-net/ce-storage, path: ce-net/ce-storage } }
+      - { name: Checkout web,        uses: actions/checkout@v4, with: { repository: ce-net/web,         path: ce-net/web } }
+      - { name: Checkout ce-worker,  uses: actions/checkout@v4, with: { repository: ce-net/ce-worker,  path: ce-net/ce-worker } }
+      - { name: Checkout ce-gov,     uses: actions/checkout@v4, with: { repository: ce-net/ce-gov,     path: ce-net/ce-gov } }
+      - { name: Checkout ce-tabnet,  uses: actions/checkout@v4, with: { repository: ce-net/ce-tabnet,  path: ce-net/ce-tabnet } }
+      - { name: Checkout ce-sched,   uses: actions/checkout@v4, with: { repository: ce-net/ce-sched,   path: ce-net/ce-sched } }
+      - { name: Checkout ce-bench,   uses: actions/checkout@v4, with: { repository: ce-net/ce-bench,   path: ce-net/ce-bench } }
+      - { name: Checkout rdev,       uses: actions/checkout@v4, with: { repository: ce-net/rdev,        path: ce-net/rdev } }
+      - { name: Checkout replicator, uses: actions/checkout@v4, with: { repository: ce-net/replicator,  path: ce-net/replicator } }
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build binaries
+        with:
+          workspaces: |
+            ce-net/ce -> target
+            ce-net/ce-storage -> target
+            ce-net/web/ce-hub -> target
+            ce-net/rdev -> target
+            ce-net/replicator -> target
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build Rust binaries
         run: |
-          (cd _ce && cargo build --release -p ce)
-          (cd _rdev && cargo build --release)
-          (cd _replicator && cargo build --release)
-      - name: Run end-to-end + adversarial tests
-        env:
-          CE_BIN: ${{ github.workspace }}/_ce/target/release/ce
-          RDEV_BIN: ${{ github.workspace }}/_rdev/target/release/rdev
-          REPL_BIN: ${{ github.workspace }}/_replicator/target/release/replicator
+          (cd ce-net/ce          && cargo build --release -p ce)
+          (cd ce-net/web/ce-hub  && cargo build --release)
+          (cd ce-net/ce-storage  && cargo build --release --features gateway)
+          (cd ce-net/rdev        && cargo build --release)
+          (cd ce-net/replicator  && cargo build --release)
+
+      - name: Run hermetic end-to-end + adversarial + app/worker/gateway suites
+        working-directory: ce-net/e2e
         run: |
           chmod +x *.sh
           ./e2e-local.sh
           ./e2e-replicate.sh
           ./e2e-attack.sh 6 40 12
+          ./e2e-apps.sh
+          ./e2e-worker.sh
+          ./e2e-gateway.sh
+
+  # Live production smoke + security invariants against the real relay. Hits ce-net.com, so it only
+  # runs on a schedule or manual dispatch (not on every push/PR).
+  prod-smoke:
+    name: production smoke + security invariants (live)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 10
+    steps:
+      - { name: Checkout e2e, uses: actions/checkout@v4 }
+      - name: Run production smoke
+        run: |
+          chmod +x e2e-prod.sh
+          ./e2e-prod.sh
