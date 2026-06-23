@@ -74,16 +74,24 @@ echo "reconnecting attacker to honest mesh..."
 kill $AP_PID 2>/dev/null; sleep 2
 "$CE" --data-dir "$AD" start --port $AP --api-port $AA --no-mdns --bootstrap "$SEED" >>"$ROOT/attacker.log" 2>&1 & AP_PID=$!; PIDS+=($AP_PID)
 upapi $AA || { bad "attacker rejoin"; exit 1; }
-echo "observing fork choice for 25s..."
-sleep 25
-aHpost=$(field $AA height); aBpost=$(field $AA balance); hHpost=$(field $API height)
-echo "after rejoin: attacker height=$aHpost balance=$aBpost | honest height=$hHpost"
 # A competing private fork must not permanently split the network or rewrite honest history: after
 # reconnect the two sides RE-CONVERGE to one chain (small drift) and honest keeps advancing (never
 # regresses). At uniform difficulty a lone stock node ties the mesh's rate, so this proves
 # "no partition / no rewrite" — the decisive "forged work is rejected" proof is the evil-fork test.
-drift=$(( aHpost > hHpost ? aHpost - hHpost : hHpost - aHpost ))
-if [ "$hHpost" -ge "$hHpre" ] && [ "$drift" -le 3 ] && [ "$aHpost" -ge 1 ]; then
+# A late gossipsub re-join can take a while to mesh + sync, so POLL for convergence (don't assume a
+# fixed window): converged = honest never regressed AND the attacker has caught up to within 3 blocks.
+echo "observing fork choice (polling re-convergence for up to 90s)..."
+converged=""
+for i in $(seq 1 18); do
+  sleep 5
+  aHpost=$(field $AA height); hHpost=$(field $API height)
+  drift=$(( aHpost > hHpost ? aHpost - hHpost : hHpost - aHpost ))
+  echo "  t=$((i*5))s  attacker=$aHpost  honest=$hHpost  drift=$drift"
+  if [ "$hHpost" -ge "$hHpre" ] && [ "$drift" -le 3 ] && [ "$aHpost" -ge 1 ]; then converged=1; break; fi
+done
+aBpost=$(field $AA balance)
+echo "after rejoin: attacker height=$aHpost balance=$aBpost | honest height=$hHpost (converged=${converged:-no})"
+if [ -n "$converged" ]; then
   ok "network re-converged to one chain after the fork attempt (attacker h$aHpost ~ honest h$hHpost; honest $hHpre -> $hHpost, never regressed) — no partition, no rewrite"
 else
   bad "network did NOT re-converge / honest regressed — INVESTIGATE (aHpost=$aHpost hHpre=$hHpre hHpost=$hHpost drift=$drift)"
