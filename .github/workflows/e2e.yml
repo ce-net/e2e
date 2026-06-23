@@ -7,17 +7,15 @@ on:
     - cron: '0 6 * * 1'   # weekly, Monday 06:00 UTC
 
 jobs:
-  # Hermetic multi-process suite: stands up real local nodes/apps on loopback (never touches
-  # ce-net.com) and asserts behaviour + security end to end. All repos are checked out as
-  # siblings under ce-net/ so the path-deps in ce-storage/ce-expose (../ce-rs, ../ce/...) resolve.
-  e2e:
-    name: live multi-node end-to-end + adversarial
+  # The app/fabric layer: native worker over the hub, ce-net.com hosting from CE blobs, and every
+  # app's offline selftest. Independent of the consensus/adversarial suite so a ce-side regression
+  # there cannot mask (or be masked by) these. Hermetic — loopback only, never touches ce-net.com.
+  apps-fabric:
+    name: apps + fabric (worker, gateway, app selftests)
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 45
     env:
       CE_BIN:         ${{ github.workspace }}/ce-net/ce/target/release/ce
-      RDEV_BIN:       ${{ github.workspace }}/ce-net/rdev/target/release/rdev
-      REPL_BIN:       ${{ github.workspace }}/ce-net/replicator/target/release/replicator
       HUB_BIN:        ${{ github.workspace }}/ce-net/web/ce-hub/target/release/ce-hub
       CE_STORAGE_BIN: ${{ github.workspace }}/ce-net/ce-storage/target/release/ce-storage
       WORKER_JS:      ${{ github.workspace }}/ce-net/ce-worker/worker.js
@@ -37,9 +35,6 @@ jobs:
       - { name: Checkout ce-tabnet,  uses: actions/checkout@v4, with: { repository: ce-net/ce-tabnet,  path: ce-net/ce-tabnet } }
       - { name: Checkout ce-sched,   uses: actions/checkout@v4, with: { repository: ce-net/ce-sched,   path: ce-net/ce-sched } }
       - { name: Checkout ce-bench,   uses: actions/checkout@v4, with: { repository: ce-net/ce-bench,   path: ce-net/ce-bench } }
-      - { name: Checkout rdev,       uses: actions/checkout@v4, with: { repository: ce-net/rdev,        path: ce-net/rdev } }
-      - { name: Checkout replicator, uses: actions/checkout@v4, with: { repository: ce-net/replicator,  path: ce-net/replicator } }
-
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -47,30 +42,63 @@ jobs:
             ce-net/ce -> target
             ce-net/ce-storage -> target
             ce-net/web/ce-hub -> target
-            ce-net/rdev -> target
-            ce-net/replicator -> target
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Build Rust binaries
+      - name: Build binaries
         run: |
-          (cd ce-net/ce          && cargo build --release -p ce)
-          (cd ce-net/web/ce-hub  && cargo build --release)
-          (cd ce-net/ce-storage  && cargo build --release --features gateway)
-          (cd ce-net/rdev        && cargo build --release)
-          (cd ce-net/replicator  && cargo build --release)
+          (cd ce-net/ce         && cargo build --release -p ce)
+          (cd ce-net/web/ce-hub && cargo build --release)
+          (cd ce-net/ce-storage && cargo build --release --features gateway)
+      - name: app selftests
+        working-directory: ce-net/e2e
+        run: |
+          chmod +x *.sh
+          ./e2e-apps.sh
+      - name: native worker over the hub
+        if: always()
+        working-directory: ce-net/e2e
+        run: ./e2e-worker.sh
+      - name: ce-net.com hosting from CE blobs (storage gateway)
+        if: always()
+        working-directory: ce-net/e2e
+        run: ./e2e-gateway.sh
 
-      - name: Run hermetic end-to-end + adversarial + app/worker/gateway suites
+  # Consensus + capability adversarial suite (the original e2e). Stands up real mining meshes and
+  # attacks them. A red here is a real ce-level signal — keep it isolated so it never blocks the
+  # app/fabric layer above.
+  adversarial:
+    name: consensus + capability adversarial
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CE_BIN:   ${{ github.workspace }}/ce-net/ce/target/release/ce
+      RDEV_BIN: ${{ github.workspace }}/ce-net/rdev/target/release/rdev
+      REPL_BIN: ${{ github.workspace }}/ce-net/replicator/target/release/replicator
+    steps:
+      - { name: Checkout e2e,        uses: actions/checkout@v4, with: { path: ce-net/e2e } }
+      - { name: Checkout ce,         uses: actions/checkout@v4, with: { repository: ce-net/ce,         path: ce-net/ce } }
+      - { name: Checkout rdev,       uses: actions/checkout@v4, with: { repository: ce-net/rdev,        path: ce-net/rdev } }
+      - { name: Checkout replicator, uses: actions/checkout@v4, with: { repository: ce-net/replicator,  path: ce-net/replicator } }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ce-net/ce -> target
+            ce-net/rdev -> target
+            ce-net/replicator -> target
+      - name: Build binaries
+        run: |
+          (cd ce-net/ce         && cargo build --release -p ce)
+          (cd ce-net/rdev       && cargo build --release)
+          (cd ce-net/replicator && cargo build --release)
+      - name: Run consensus + capability adversarial suite
         working-directory: ce-net/e2e
         run: |
           chmod +x *.sh
           ./e2e-local.sh
           ./e2e-replicate.sh
           ./e2e-attack.sh 6 40 12
-          ./e2e-apps.sh
-          ./e2e-worker.sh
-          ./e2e-gateway.sh
 
   # Live production smoke + security invariants against the real relay. Hits ce-net.com, so it only
   # runs on a schedule or manual dispatch (not on every push/PR).
