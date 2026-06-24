@@ -123,24 +123,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     env:
-      CE_BIN:   ${{ github.workspace }}/ce-net/ce/target/release/ce
-      RDEV_BIN: ${{ github.workspace }}/ce-net/rdev/target/release/rdev
+      CE_BIN:     ${{ github.workspace }}/ce-net/ce/target/release/ce
+      RDEV_BIN:   ${{ github.workspace }}/ce-net/rdev/target/release/rdev
+      EXPOSE_BIN: ${{ github.workspace }}/ce-net/ce-expose/target/release/ce-expose
     steps:
-      - { name: Checkout e2e,  uses: actions/checkout@v4, with: { path: ce-net/e2e } }
-      - { name: Checkout ce,   uses: actions/checkout@v4, with: { repository: ce-net/ce,   path: ce-net/ce } }
-      - { name: Checkout rdev, uses: actions/checkout@v4, with: { repository: ce-net/rdev, path: ce-net/rdev } }
+      - { name: Checkout e2e,       uses: actions/checkout@v4, with: { path: ce-net/e2e } }
+      - { name: Checkout ce,        uses: actions/checkout@v4, with: { repository: ce-net/ce,        path: ce-net/ce } }
+      - { name: Checkout rdev,      uses: actions/checkout@v4, with: { repository: ce-net/rdev,      path: ce-net/rdev } }
+      - { name: Checkout ce-rs,     uses: actions/checkout@v4, with: { repository: ce-net/ce-rs,     path: ce-net/ce-rs } }
+      - { name: Checkout ce-expose, uses: actions/checkout@v4, with: { repository: ce-net/ce-expose, path: ce-net/ce-expose } }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             ce-net/ce -> target
             ce-net/rdev -> target
+            ce-net/ce-expose -> target
       - name: Build binaries
         run: |
           (cd ce-net/ce   && cargo build --release -p ce)
           # rdev is the ce-cap enforcement point that e2e-attack-caps.sh drives; if its build fails
           # caps.sh degrades (CAP1/CAP2/CAP10 still run), so do not let it gate the whole job.
           (cd ce-net/rdev && cargo build --release) || echo "rdev build failed; caps.sh will skip cap-chain attacks"
+          # ce-expose's public ingress front door (axum) is feature-gated; build it in so the ingress
+          # red team can drive `ce-expose ingress`. If its build fails, e2e-attack-ingress.sh skips
+          # cleanly (EXPOSE_BIN absent), so do not let it gate the whole job.
+          (cd ce-net/ce-expose && cargo build --release --features ingress) || echo "ce-expose build failed; ingress attack suite will skip"
       - name: chmod scripts
         working-directory: ce-net/e2e
         run: chmod +x *.sh lib/*.sh
@@ -174,6 +182,10 @@ jobs:
         if: always()
         working-directory: ce-net/e2e
         run: ./e2e-attack-data-job.sh
+      - name: public ingress red team (MUST-HOLD default-deny/host-spoof/SSRF/private-cap/rate/kill)
+        if: always()
+        working-directory: ce-net/e2e
+        run: ./e2e-attack-ingress.sh
 
   # Live production smoke + security invariants against the real relay. Hits ce-net.com, so it only
   # runs on a schedule or manual dispatch (not on every push/PR).
