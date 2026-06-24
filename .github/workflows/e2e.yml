@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 45
     env:
       CE_BIN:         ${{ github.workspace }}/ce-net/ce/target/release/ce
+      EXPOSE_BIN:     ${{ github.workspace }}/ce-net/ce-expose/target/release/ce-expose
       HUB_BIN:        ${{ github.workspace }}/ce-net/web/ce-hub/target/release/ce-hub
       CE_STORAGE_BIN: ${{ github.workspace }}/ce-net/ce-storage/target/release/ce-storage
       WORKER_JS:      ${{ github.workspace }}/ce-net/ce-worker/worker.js
@@ -35,6 +36,7 @@ jobs:
       - { name: Checkout ce-tabnet,  uses: actions/checkout@v4, with: { repository: ce-net/ce-tabnet,  path: ce-net/ce-tabnet } }
       - { name: Checkout ce-sched,   uses: actions/checkout@v4, with: { repository: ce-net/ce-sched,   path: ce-net/ce-sched } }
       - { name: Checkout ce-bench,   uses: actions/checkout@v4, with: { repository: ce-net/ce-bench,   path: ce-net/ce-bench } }
+      - { name: Checkout ce-expose,  uses: actions/checkout@v4, with: { repository: ce-net/ce-expose,  path: ce-net/ce-expose } }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -42,6 +44,7 @@ jobs:
             ce-net/ce -> target
             ce-net/ce-storage -> target
             ce-net/web/ce-hub -> target
+            ce-net/ce-expose -> target
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -50,6 +53,10 @@ jobs:
           (cd ce-net/ce         && cargo build --release -p ce)
           (cd ce-net/web/ce-hub && cargo build --release)
           (cd ce-net/ce-storage && cargo build --release --features gateway)
+          # ce-expose's public ingress front door (axum) is feature-gated; build it in so the e2e
+          # exercises the `ce-expose ingress` subcommand. Path-deps ../ce-rs and ../ce/crates/* are
+          # already provided by the sibling checkouts above.
+          (cd ce-net/ce-expose  && cargo build --release --features ingress)
       - name: app selftests
         working-directory: ce-net/e2e
         run: |
@@ -63,6 +70,10 @@ jobs:
         if: always()
         working-directory: ce-net/e2e
         run: ./e2e-gateway.sh
+      - name: ce-expose public ingress (default-deny, kill switch, rate limit)
+        if: always()
+        working-directory: ce-net/e2e
+        run: ./e2e-ingress.sh
 
   # Consensus + capability adversarial suite (the original e2e). Stands up real mining meshes and
   # attacks them. A red here is a real ce-level signal — keep it isolated so it never blocks the
