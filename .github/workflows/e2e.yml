@@ -111,6 +111,70 @@ jobs:
           ./e2e-replicate.sh
           ./e2e-attack.sh 6 40 12
 
+  # The "try to compromise the mesh" red team. Stands up real ephemeral CE nodes (CE-TWLE main) and
+  # ATTACKS them, asserting the defenses hold. Mirrors the `adversarial` job's checkout+build of ce
+  # (plus rdev, the ce-cap enforcement point that e2e-attack-caps.sh drives). Each e2e-attack-*.sh
+  # runs as its OWN `if: always()` step so one red defense does not mask the others. A red here is a
+  # real ce-level regression: a MUST-HOLD defense that the audit says is implemented was DEFEATED.
+  # KNOWN-OPEN holes (E1/E2/E4/E5, eclipse/IP-diversity, guardian, V4/V8) print a loud KNOWN-OPEN
+  # line and are tallied separately — they do NOT fail the suite (they flip to red when the fix lands).
+  redteam:
+    name: adversarial red team (compromise the mesh)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      CE_BIN:   ${{ github.workspace }}/ce-net/ce/target/release/ce
+      RDEV_BIN: ${{ github.workspace }}/ce-net/rdev/target/release/rdev
+    steps:
+      - { name: Checkout e2e,  uses: actions/checkout@v4, with: { path: ce-net/e2e } }
+      - { name: Checkout ce,   uses: actions/checkout@v4, with: { repository: ce-net/ce,   path: ce-net/ce } }
+      - { name: Checkout rdev, uses: actions/checkout@v4, with: { repository: ce-net/rdev, path: ce-net/rdev } }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ce-net/ce -> target
+            ce-net/rdev -> target
+      - name: Build binaries
+        run: |
+          (cd ce-net/ce   && cargo build --release -p ce)
+          # rdev is the ce-cap enforcement point that e2e-attack-caps.sh drives; if its build fails
+          # caps.sh degrades (CAP1/CAP2/CAP10 still run), so do not let it gate the whole job.
+          (cd ce-net/rdev && cargo build --release) || echo "rdev build failed; caps.sh will skip cap-chain attacks"
+      - name: chmod scripts
+        working-directory: ce-net/e2e
+        run: chmod +x *.sh lib/*.sh
+      # Each attack as its own always()-step: a red MUST-HOLD defense in one script never masks the
+      # results of the others.
+      - name: capability / auth red team (MUST-HOLD ce-cap; D1 known-open)
+        if: always()
+        working-directory: ce-net/e2e
+        run: ./e2e-attack-caps.sh
+      - name: transport / RPC red team (MUST-HOLD noise+token+cap; N1/N2/N7 known-open)
+        if: always()
+        working-directory: ce-net/e2e
+        run: ./e2e-attack-transport.sh
+      - name: economy / double-spend red team (MUST-HOLD E3/E6; E4/E5 known-open)
+        if: always()
+        working-directory: ce-net/e2e
+        run: ./e2e-attack-economy.sh
+      - name: CE-TWLE consensus integrity red team (MUST-HOLD slot/equivocation; V8 known-open)
+        if: always()
+        working-directory: ce-net/e2e
+        run: ./e2e-attack-consensus.sh
+      - name: sybil / fake-capacity red team (MUST-HOLD signer+burn; E1/E2/E4 known-open)
+        if: always()
+        working-directory: ce-net/e2e
+        run: ./e2e-attack-sybil-capacity.sh
+      - name: network / eclipse red team (MUST-HOLD offline append; N3-N6/N8 known-open)
+        if: always()
+        working-directory: ce-net/e2e
+        run: ./e2e-attack-eclipse.sh
+      - name: data / job integrity red team (MUST-HOLD content-address; V4/guardian known-open)
+        if: always()
+        working-directory: ce-net/e2e
+        run: ./e2e-attack-data-job.sh
+
   # Live production smoke + security invariants against the real relay. Hits ce-net.com, so it only
   # runs on a schedule or manual dispatch (not on every push/PR).
   prod-smoke:
