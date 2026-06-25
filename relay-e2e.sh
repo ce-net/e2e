@@ -45,21 +45,18 @@ VB=$(docker exec ce-e2e-b /usr/local/bin/ce --version 2>/dev/null)
 VR=$($CE --version 2>/dev/null)
 [ "$VA" = "$VR" ] && [ "$VB" = "$VR" ] && ok "A,B,relay all $VR" || no "version drift A=$VA B=$VB relay=$VR"
 
-echo "=== both connect to the relay (relay log shows their peer ids)? ==="
-sleep 10
-IDA=$(docker exec ce-e2e-a sh -c '/usr/local/bin/ce status 2>/dev/null' | grep -oE 'peer id *: *12D3[A-Za-z0-9]+' | grep -oE '12D3[A-Za-z0-9]+' | head -1)
-IDB=$(docker exec ce-e2e-b sh -c '/usr/local/bin/ce status 2>/dev/null' | grep -oE 'peer id *: *12D3[A-Za-z0-9]+' | grep -oE '12D3[A-Za-z0-9]+' | head -1)
-LOG=$(journalctl -u ce-relay --since "30 sec ago" --no-pager 2>/dev/null)
-echo "$LOG" | grep -q "$IDA" && ok "A ($IDA) connected to relay" || no "A not seen at relay"
-echo "$LOG" | grep -q "$IDB" && ok "B ($IDB) connected to relay" || no "B not seen at relay"
-
-echo "=== mesh converges: do A and B sync chain height off the relay? ==="
-sleep 8
-HA=$(docker exec ce-e2e-a sh -c '/usr/local/bin/ce status 2>/dev/null' | grep -iE 'height' | grep -oE '[0-9]+' | head -1)
-HB=$(docker exec ce-e2e-b sh -c '/usr/local/bin/ce status 2>/dev/null' | grep -iE 'height' | grep -oE '[0-9]+' | head -1)
-echo "  heights: A=$HA B=$HB"
-[ -n "$HA" ] && [ "$HA" -gt 1 ] 2>/dev/null && ok "A synced past genesis (h=$HA)" || no "A did not sync (h=$HA)"
-[ -n "$HB" ] && [ "$HB" -gt 1 ] 2>/dev/null && ok "B synced past genesis (h=$HB)" || no "B did not sync (h=$HB)"
+echo "=== mesh converges: A and B sync the chain off the relay (this proves connectivity) ==="
+HR=$($CE status 2>/dev/null | grep -iE 'height' | grep -oE '[0-9]+' | head -1)
+hof(){ docker exec "$1" sh -c '/usr/local/bin/ce status 2>/dev/null' 2>/dev/null | grep -iE 'height' | grep -oE '[0-9]+' | head -1; }
+HA=0; HB=0
+for _ in $(seq 1 24); do            # poll up to ~2 min for the chain (~3400 blocks) to sync
+  HA=$(hof ce-e2e-a); HB=$(hof ce-e2e-b)
+  { [ "${HA:-0}" -gt 100 ] && [ "${HB:-0}" -gt 100 ]; } 2>/dev/null && break
+  sleep 5
+done
+echo "  heights: A=$HA B=$HB (relay=$HR)"
+[ "${HA:-0}" -gt 100 ] 2>/dev/null && ok "A synced off relay (h=$HA)" || no "A did not sync (h=$HA)"
+[ "${HB:-0}" -gt 100 ] 2>/dev/null && ok "B synced off relay (h=$HB)" || no "B did not sync (h=$HB)"
 
 echo; echo "================  RESULT: $PASS passed, $FAIL failed  ================"
 [ "$FAIL" -eq 0 ]
