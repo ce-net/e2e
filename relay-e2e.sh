@@ -8,7 +8,7 @@
 set -u
 CE=/usr/local/bin/ce
 RELAY="/ip4/172.17.0.1/tcp/4001/p2p/12D3KooWC6vyMMrtmdWEdpcMx7JZ4Ze5scUhA6BbMdYqnUDC7nr7"
-IMG=debian:12
+IMG=ubuntu:24.04   # must match build glibc (relay is Ubuntu 24.04 / glibc 2.39); + libssl3 below
 PASS=0; FAIL=0
 ok(){ echo "  PASS: $*"; PASS=$((PASS+1)); }
 no(){ echo "  FAIL: $*"; FAIL=$((FAIL+1)); }
@@ -20,7 +20,7 @@ echo "=== ce version on relay (source binary) ==="; $CE --version
 start_node(){ # name
   docker rm -f "$1" >/dev/null 2>&1
   docker run -d --name "$1" -v "$CE:/usr/local/bin/ce:ro" "$IMG" \
-    sh -c "mkdir -p /root/.local/share/ce; /usr/local/bin/ce start --light --bootstrap $RELAY --relay $RELAY > /var/log/ce.log 2>&1" >/dev/null
+    sh -c "export DEBIAN_FRONTEND=noninteractive; apt-get update -q >/dev/null 2>&1; apt-get install -yq libssl3 ca-certificates >/dev/null 2>&1; mkdir -p /root/.local/share/ce; /usr/local/bin/ce start --light --bootstrap $RELAY --relay $RELAY > /var/log/ce.log 2>&1" >/dev/null
 }
 in578(){ docker exec "$1" sh -c "$2" 2>/dev/null; }   # exec-in-container
 
