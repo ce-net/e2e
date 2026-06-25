@@ -11,7 +11,7 @@ TOKEN=$(grep HETZNER_API_TOKEN ce/.env | cut -d= -f2- | tr -d '"'"'"' ')
 KEY_ID=112796132                       # ce-laptop
 SSHK="$HOME/.ssh/id_ed25519"
 SSH="ssh -i $SSHK -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10"
-TYPE=cpx11; IMG=debian-12; LOC=fsn1
+TYPE=cx23; IMG=debian-12; LOC=fsn1
 CE_URL=https://github.com/ce-net/rdev/releases/download/v0.1.0/ce-linux-amd64-012
 CE_SHA=b740dad9d962972439d34f4bb2cc7425efff72a98319c91756de972853cdc805
 RELAY=/ip4/178.105.145.170/tcp/4001/p2p/12D3KooWC6vyMMrtmdWEdpcMx7JZ4Ze5scUhA6BbMdYqnUDC7nr7
