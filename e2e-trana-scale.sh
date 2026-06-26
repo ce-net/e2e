@@ -76,7 +76,10 @@ for _ in $(seq 1 25); do
 done
 [ "$up" -ge 3 ] && ok "CE mesh online ($up/$N node APIs live)" || { bad "mesh did not form"; rt_result; exit 1; }
 
-API0=$API; API1=$((API+1)); API2=$((API+2))
+API0=$API; API1=$((API+1)); API2=$((API+2)); API3=$((API+3)); API4=$((API+4))
+# NOTE: all writes pin the trana service T0 (on h0). A client must NEVER connect through the same
+# node it pins (a CE node can't mesh-request its own co-located node), so writes go via API1..API4,
+# never API0.
 ID=(); for i in $(seq 0 $((N-1))); do ID+=("$(rt_node_id "$ROOT/h$i")"); done
 T0=${ID[0]}; T1=${ID[1]}; T2=${ID[2]}
 
@@ -88,11 +91,12 @@ sleep 2
 
 # --------------------------------------------------------------------------------------------------
 say "SCALE: a board with many posts + votes from several identities"
-[ -n "$(tcli_try "$API0" "$T1" board-create general --title "General" --ban-quorum 3)" ] && ok "board created" || bad "board-create failed"
+[ -n "$(tcli_try "$API1" "$T0" board-create general --title "General" --ban-quorum 3)" ] && ok "board created" || bad "board-create failed"
 POSTS=()
 for i in $(seq 1 12); do
-  # round-robin the authoring CE node so posts come from several identities
-  a=$((API + (i % 3)))
+  # round-robin the authoring CE node over h1,h2,h3 (never h0 = the trana host) so posts come from
+  # several identities.
+  a=$((API + 1 + (i % 3)))
   pid=$(tcli_try "$a" "$T0" post --board general --title "post $i" --body "body $i")
   [ -n "$pid" ] && POSTS+=("$pid")
 done
@@ -109,11 +113,11 @@ cnt=$(echo "$FEED" | python3 -c "import sys,json;print(len(json.load(sys.stdin).
 
 # --------------------------------------------------------------------------------------------------
 say "STREAMING: live segments pushed on T0, played from T1"
-SID=$(tcli_try "$API0" "$T0" stream-start --title "live demo" --kind video)
+SID=$(tcli_try "$API1" "$T0" stream-start --title "live demo" --kind video)
 [ -n "$SID" ] && ok "stream started: $SID" || bad "stream-start failed"
 for seq in 0 1 2 3 4; do
   seg="$ROOT/seg$seq.ts"; head -c 60000 /dev/urandom >"$seg"
-  tcli_try "$API0" "$T0" stream-append "$SID" "$seq" "$seg" --duration-ms 2000 >/dev/null
+  tcli_try "$API1" "$T0" stream-append "$SID" "$seq" "$seg" --duration-ms 2000 >/dev/null
 done
 got=0
 for _ in $(seq 1 20); do
@@ -130,7 +134,7 @@ if [ -n "$SEG_CID" ] && curl -fsS -m5 "http://127.0.0.1:$API1/blobs/$SEG_CID" >/
 else
   bad "segment bytes not retrievable via T1"
 fi
-tcli "$API0" "$T0" stream-end "$SID" >/dev/null 2>&1 && ok "stream ended" || skip "stream-end issue"
+tcli "$API1" "$T0" stream-end "$SID" >/dev/null 2>&1 && ok "stream ended" || skip "stream-end issue"
 
 # --------------------------------------------------------------------------------------------------
 say "AUTH / UNTRUSTED PEERS"
@@ -141,10 +145,10 @@ AUTHOR=$(tcli "$API1" "$T0" threads general --sort new --limit 50 2>/dev/null | 
 [ -n "$APID" ] && [ "$AUTHOR" = "$T2" ] && ok "authorship = authenticated sender ($T2), unforgeable" || bad "authorship not bound to sender (got '$AUTHOR')"
 
 # A trust-gated board rejects a low-trust peer's vote.
-tcli_try "$API0" "$T0" board-create vetted --title "Vetted" --min-trust-vote 0.99 >/dev/null
-GPID=$(tcli_try "$API0" "$T0" post --board vetted --title "gated" --body "vote me")
+tcli_try "$API1" "$T0" board-create vetted --title "Vetted" --min-trust-vote 0.99 >/dev/null
+GPID=$(tcli_try "$API1" "$T0" post --board vetted --title "gated" --body "vote me")
 sleep 1
-if tcli "$API1" "$T0" vote "${GPID:-x}" 1 >/dev/null 2>&1; then
+if tcli "$API2" "$T0" vote "${GPID:-x}" 1 >/dev/null 2>&1; then
   bad "low-trust peer was allowed to vote in a trust-gated board"
 else
   xfail "trust gate rejected a low-trust peer's vote (min_trust_to_vote=0.99)"
