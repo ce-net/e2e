@@ -121,7 +121,7 @@ def main():
 
     # Shared, latest-wins state captured from the SSE stream, plus cumulative event flags.
     latest = {"sector": None, "watch": None}
-    seen = {"bullets": False, "beams": False, "debris": False, "ruleset": 0, "peak_players": 0}
+    seen = {"bullets": False, "beams": False, "debris": False, "explosions": False, "ruleset": 0, "peak_players": 0}
     stop = threading.Event()
 
     def inbox():
@@ -164,6 +164,8 @@ def main():
                                     seen["beams"] = True
                                 if snap.get("debris"):
                                     seen["debris"] = True
+                                if snap.get("explosions"):
+                                    seen["explosions"] = True
                                 seen["ruleset"] = max(seen["ruleset"], int(snap.get("ruleset", 0)))
                                 seen["peak_players"] = max(seen["peak_players"], len(snap.get("ships", [])))
                             elif watch_state and topic == watch_state:
@@ -240,6 +242,7 @@ def main():
         "saw_bullets": seen["bullets"],
         "saw_beams": seen["beams"],
         "saw_debris": seen["debris"],
+        "saw_explosions": seen["explosions"],
         "transited_to": args.watch_sector if transited else None,
         "tick": snap.get("tick", 0),
         # Faction tracking:
