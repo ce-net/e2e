@@ -24,15 +24,16 @@ browser** through a WASM-only node, sharing the same world. Built 2026-06-26.
 | **Hot reload** — live ruleset push (`ruleset.rs`, `director::publish_ruleset`) | `spacegame ruleset push` ⇒ bot reports `ruleset>=2` |
 | **Fault tolerance** — replica takeover after total host loss (`replication.rs`, `snapshot.rs`) | DELETE VM A ⇒ C adopts the replicated 0_0 snapshot ⇒ sector resumes |
 | **Autoscale** — pre-warm neighbours (`director::prewarm_neighbors`) | A hosts `--autoscale`; observable as neighbour placement under load |
-| **Always-alive faction** (`faction.rs`) | unit tests + carried in the replicated snapshot (failover keeps it); see note |
+| **Always-alive faction + NPC fleet under command** (`faction.rs`, `sim.rs`) | bot reads `FactionView` on the wire: `factions_tracked`, `my_faction.power`, `my_fleet_alive`, `npc_ships_seen` |
 | **Mobile-in-browser** — phone profile, touch controls | `browser/...mjs` (mobile device, canvas, touch+key ⇒ input publish) |
 | **WASM-only peer** — in-browser node, nothing leaves the origin | `browser/...mjs` (`window.__ceNode` check + same-origin invariant) |
 | **Native ↔ browser interop** — both share a sector | `browser/...mjs` with `NATIVE_PEER=1` while the VM bots are live |
 
-> Faction note: faction state is not yet on the snapshot wire, so the e2e cannot read it directly. It
-> is covered by deterministic unit tests and is included in the sector snapshot, so the failover leg
-> implicitly carries it. Adding a read-only faction query to the node API would let the e2e assert
-> "your faction kept building while you were away" directly — a small, worthwhile follow-up.
+> Faction tracking: faction state IS now on the snapshot wire (`FactionView` — economy, roster, live
+> fleet count, standing order), and fleet units are real NPC ships carrying `owner`/`role`. The bot
+> asserts factions are tracked and that your faction fields NPC ships under command. To assert "kept
+> building while you were away" specifically, run a bot, leave, and re-read the faction `power` after a
+> delay — the autonomy advances it every tick regardless of presence.
 
 ## Running
 

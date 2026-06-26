@@ -219,7 +219,13 @@ def main():
     stop.set()
 
     snap = latest["sector"] or {}
-    me = next((s for s in snap.get("ships", []) if s.get("id") == my_id), None)
+    ships = snap.get("ships", [])
+    me = next((s for s in ships if s.get("id") == my_id), None)
+    # Track factions (the always-alive economy + the NPC fleet under command).
+    factions = snap.get("factions", [])
+    my_faction = next((f for f in factions if f.get("owner") == my_id), None)
+    npc_ships = [s for s in ships if s.get("role", "player") != "player"]
+    my_fleet = [s for s in npc_ships if s.get("owner") == my_id]
     summary = {
         "node_id": my_id,
         "sector": args.sector,
@@ -229,13 +235,18 @@ def main():
         "weapon": (me or {}).get("weapon", ""),
         "weapons": (me or {}).get("weapons", []),
         "ruleset": max(int(snap.get("ruleset", 0)), seen["ruleset"]),
-        "players_seen": sorted({s.get("id") for s in snap.get("ships", [])}),
+        "players_seen": sorted({s.get("id") for s in ships if s.get("role", "player") == "player"}),
         "peak_players": seen["peak_players"],
         "saw_bullets": seen["bullets"],
         "saw_beams": seen["beams"],
         "saw_debris": seen["debris"],
         "transited_to": args.watch_sector if transited else None,
         "tick": snap.get("tick", 0),
+        # Faction tracking:
+        "factions_tracked": len(factions),
+        "my_faction": my_faction,  # {minerals,energy,alloys,buildings,drones,fighters,haulers,fleet_alive,power,command}
+        "npc_ships_seen": len(npc_ships),
+        "my_fleet_alive": len(my_fleet),
     }
     print(json.dumps(summary))
     return 0

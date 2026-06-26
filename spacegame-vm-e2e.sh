@@ -149,6 +149,12 @@ echo "$BOT_A" | jget "d['present']" 2>/dev/null | grep -qi true && ok "bot prese
 echo "$BOT_A" | jget "d['saw_bullets']" 2>/dev/null | grep -qi true && ok "blaster fired (bullets in authoritative state)" || no "no bullets seen"
 echo "$BOT_A" | jget "d.get('ruleset',0)" 2>/dev/null | awk '{exit !($1>=2)}' && ok "hot-reloaded ruleset is live (v$(echo "$BOT_A" | jget "d.get('ruleset',0)"))" || no "ruleset did not hot-apply"
 
+# ---- FACTIONS: tracked on the wire, and fielded as NPC ships under your command ----
+echo "$BOT_A" | jget "d.get('factions_tracked',0)" 2>/dev/null | awk '{exit !($1>=1)}' && ok "factions are tracked on the snapshot wire" || no "no factions tracked"
+echo "$BOT_A" | jget "(d.get('my_faction') or {}).get('power',0)" 2>/dev/null | awk '{exit !($1>0)}' && ok "your faction has a live economy (power>0)" || no "no faction economy"
+echo "$BOT_A" | jget "d.get('my_fleet_alive',0)" 2>/dev/null | awk '{exit !($1>=1)}' && ok "your faction fields NPC fleet ships under command" || no "no NPC fleet ships fielded"
+echo "$BOT_A" | jget "d.get('npc_ships_seen',0)" 2>/dev/null | awk '{exit !($1>=1)}' && ok "NPC fleet ships are visible in the authoritative state" || no "no NPC ships in state"
+
 BOT_T=$(on "${A[1]}" "python3 /root/spacegame-bot.py --sector 0_0 --watch-sector 1_0 --behavior east --secs 20 --name traveler" 2>/dev/null | tail -1)
 echo "  bot transit -> $BOT_T"
 echo "$BOT_T" | jget "d.get('transited_to')" 2>/dev/null | grep -q "1_0" && ok "ship transited 0_0 -> 1_0 across the mesh (infinite map)" || no "no cross-sector transit observed"
