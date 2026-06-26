@@ -1,0 +1,14 @@
+{
+  "name": "spacegame-browser-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mobile-emulated browser e2e for CE spacegame: loads the frontend on a phone profile, connects to the mesh through the in-browser WASM node / same-origin proxy, and asserts join + play + native interop.",
+  "scripts": {
+    "test": "node spacegame-browser-e2e.mjs",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
