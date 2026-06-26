@@ -52,6 +52,19 @@ start_trana() { # name ce-api
 }
 # trana CLI through a CE node's api, pinned to a trana node id. Returns the exit code of the call.
 tcli() { local api=$1 node=$2; shift 2; "$TRANA_BIN" --node-url "http://127.0.0.1:$api" --node "$node" "$@" 2>>"$ROOT/cli.log"; }
+# Hardened write: retry until the call yields non-empty stdout (a record id). Cross-node mesh
+# request/reply can transiently time out under concurrency; a write is idempotent by content hash, so
+# retrying is safe.
+tcli_try() {
+  local api=$1 node=$2; shift 2
+  local out=""
+  for _ in 1 2 3 4 5 6; do
+    out=$("$TRANA_BIN" --node-url "http://127.0.0.1:$api" --node "$node" "$@" 2>>"$ROOT/cli.log")
+    [ -n "$out" ] && break
+    sleep 0.6
+  done
+  echo "$out"
+}
 
 # --------------------------------------------------------------------------------------------------
 say "CE SETUP: $N-node mesh"
@@ -75,12 +88,12 @@ sleep 2
 
 # --------------------------------------------------------------------------------------------------
 say "SCALE: a board with many posts + votes from several identities"
-tcli "$API0" "$T1" board-create general --title "General" --ban-quorum 3 >/dev/null && ok "board created" || bad "board-create failed"
+[ -n "$(tcli_try "$API0" "$T1" board-create general --title "General" --ban-quorum 3)" ] && ok "board created" || bad "board-create failed"
 POSTS=()
 for i in $(seq 1 12); do
   # round-robin the authoring CE node so posts come from several identities
-  a=$((API + (i % 3))); n=${ID[$((i % 3))]}
-  pid=$(tcli "$a" "$T0" post --board general --title "post $i" --body "body $i")
+  a=$((API + (i % 3)))
+  pid=$(tcli_try "$a" "$T0" post --board general --title "post $i" --body "body $i")
   [ -n "$pid" ] && POSTS+=("$pid")
 done
 [ "${#POSTS[@]}" -ge 10 ] && ok "fanned in ${#POSTS[@]} posts from 3 identities" || bad "only ${#POSTS[@]} posts landed"
@@ -96,11 +109,11 @@ cnt=$(echo "$FEED" | python3 -c "import sys,json;print(len(json.load(sys.stdin).
 
 # --------------------------------------------------------------------------------------------------
 say "STREAMING: live segments pushed on T0, played from T1"
-SID=$(tcli "$API0" "$T0" stream-start --title "live demo" --kind video 2>/dev/null)
+SID=$(tcli_try "$API0" "$T0" stream-start --title "live demo" --kind video)
 [ -n "$SID" ] && ok "stream started: $SID" || bad "stream-start failed"
 for seq in 0 1 2 3 4; do
   seg="$ROOT/seg$seq.ts"; head -c 60000 /dev/urandom >"$seg"
-  tcli "$API0" "$T0" stream-append "$SID" "$seq" "$seg" --duration-ms 2000 >/dev/null 2>&1
+  tcli_try "$API0" "$T0" stream-append "$SID" "$seq" "$seg" --duration-ms 2000 >/dev/null
 done
 got=0
 for _ in $(seq 1 20); do
@@ -123,13 +136,13 @@ tcli "$API0" "$T0" stream-end "$SID" >/dev/null 2>&1 && ok "stream ended" || ski
 say "AUTH / UNTRUSTED PEERS"
 # Authorship is the authenticated sender: a post made via node h2 is authored by h2's NodeId, and
 # there is no field in the request to claim otherwise.
-APID=$(tcli "$API2" "$T0" post --board general --title "who am i" --body "x")
+APID=$(tcli_try "$API2" "$T0" post --board general --title "who am i" --body "x")
 AUTHOR=$(tcli "$API1" "$T0" threads general --sort new --limit 50 2>/dev/null | python3 -c "import sys,json;ts=json.load(sys.stdin).get('threads',[]);print(next((t['author'] for t in ts if t['id']=='$APID'),''))" 2>/dev/null)
 [ -n "$APID" ] && [ "$AUTHOR" = "$T2" ] && ok "authorship = authenticated sender ($T2), unforgeable" || bad "authorship not bound to sender (got '$AUTHOR')"
 
 # A trust-gated board rejects a low-trust peer's vote.
-tcli "$API0" "$T0" board-create vetted --title "Vetted" --min-trust-vote 0.99 >/dev/null 2>&1
-GPID=$(tcli "$API0" "$T0" post --board vetted --title "gated" --body "vote me")
+tcli_try "$API0" "$T0" board-create vetted --title "Vetted" --min-trust-vote 0.99 >/dev/null
+GPID=$(tcli_try "$API0" "$T0" post --board vetted --title "gated" --body "vote me")
 sleep 1
 if tcli "$API1" "$T0" vote "${GPID:-x}" 1 >/dev/null 2>&1; then
   bad "low-trust peer was allowed to vote in a trust-gated board"
@@ -140,14 +153,14 @@ fi
 # --------------------------------------------------------------------------------------------------
 say "COMMUNITY BAN: quorum of peers, no mods"
 OUTCAST=${ID[4]}
-OPID=$(tcli "$API0" "$T0" post --board general --title "unpopular" --body "controversial take")
+OPID=$(tcli_try "$API0" "$T0" post --board general --title "unpopular" --body "controversial take")
 # A single peer voting to ban does NOT ban (quorum is 3).
-tcli "$API0" "$T0" ban-vote general "$OUTCAST" >/dev/null 2>&1
+tcli_try "$API0" "$T0" ban-vote general "$OUTCAST" >/dev/null
 ONE=$(tcli "$API0" "$T0" ban-standing general "$OUTCAST" 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['standing']['banned_raw'])" 2>/dev/null)
 [ "$ONE" = "False" ] && ok "one peer alone cannot ban (below quorum)" || bad "ban took effect below quorum"
 # Three distinct peers reach quorum → banned.
-tcli "$API1" "$T0" ban-vote general "$OUTCAST" >/dev/null 2>&1
-tcli "$API2" "$T0" ban-vote general "$OUTCAST" >/dev/null 2>&1
+tcli_try "$API1" "$T0" ban-vote general "$OUTCAST" >/dev/null
+tcli_try "$API2" "$T0" ban-vote general "$OUTCAST" >/dev/null
 banned=0
 for _ in $(seq 1 10); do
   B=$(tcli "$API0" "$T0" ban-standing general "$OUTCAST" 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['standing']['banned_raw'])" 2>/dev/null)
