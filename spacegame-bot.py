@@ -119,8 +119,9 @@ def main():
             except Exception as e:
                 log("subscribe failed", t, e)
 
-    # Shared, latest-wins state captured from the SSE stream.
+    # Shared, latest-wins state captured from the SSE stream, plus cumulative event flags.
     latest = {"sector": None, "watch": None}
+    seen = {"bullets": False, "beams": False, "debris": False, "ruleset": 0, "peak_players": 0}
     stop = threading.Event()
 
     def inbox():
@@ -157,6 +158,14 @@ def main():
                                 continue
                             if topic == state_topic:
                                 latest["sector"] = snap
+                                if snap.get("bullets"):
+                                    seen["bullets"] = True
+                                if snap.get("beams"):
+                                    seen["beams"] = True
+                                if snap.get("debris"):
+                                    seen["debris"] = True
+                                seen["ruleset"] = max(seen["ruleset"], int(snap.get("ruleset", 0)))
+                                seen["peak_players"] = max(seen["peak_players"], len(snap.get("ships", [])))
                             elif watch_state and topic == watch_state:
                                 latest["watch"] = snap
             except Exception as e:
@@ -219,10 +228,12 @@ def main():
         "kills": (me or {}).get("kills", 0),
         "weapon": (me or {}).get("weapon", ""),
         "weapons": (me or {}).get("weapons", []),
-        "ruleset": snap.get("ruleset", 0),
+        "ruleset": max(int(snap.get("ruleset", 0)), seen["ruleset"]),
         "players_seen": sorted({s.get("id") for s in snap.get("ships", [])}),
-        "debris_count": len(snap.get("debris", [])),
-        "beams": len(snap.get("beams", [])),
+        "peak_players": seen["peak_players"],
+        "saw_bullets": seen["bullets"],
+        "saw_beams": seen["beams"],
+        "saw_debris": seen["debris"],
         "transited_to": args.watch_sector if transited else None,
         "tick": snap.get("tick", 0),
     }
