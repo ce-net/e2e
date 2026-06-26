@@ -46,14 +46,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
   const device = devices[DEVICE] || devices["Pixel 7"];
-  console.log(`=== spacegame mobile browser e2e: ${DEVICE} -> ${URL} ===`);
+  console.log(`=== spacegame mobile browser e2e: ${DEVICE} -> ${TARGET} ===`);
   const browser = await chromium.launch({ args: ["--no-sandbox"] });
   const context = await browser.newContext({ ...device });
   const page = await context.newPage();
 
   // Record every network request so we can assert the mesh wire + the same-origin invariant.
   const reqs = [];
-  const origin = new URL2(URL).origin;
+  const origin = new URL(TARGET).origin;
   let offOrigin = 0;
   page.on("request", (r) => {
     const u = r.url();
@@ -66,7 +66,7 @@ async function main() {
   });
 
   try {
-    await page.goto(URL, { waitUntil: "domcontentloaded", timeout: 20000 });
+    await page.goto(TARGET, { waitUntil: "domcontentloaded", timeout: 20000 });
     ok("frontend loaded");
   } catch (e) {
     no("frontend failed to load: " + e.message);
@@ -158,11 +158,6 @@ async function main() {
 function finish() {
   console.log(`\n================  RESULT: ${pass} passed, ${fail} failed  ================`);
   process.exit(fail === 0 ? 0 : 1);
-}
-
-// Tiny URL helper alias so the request handler can be defined before main() runs.
-function URL2(u) {
-  return new URL(u);
 }
 
 main().catch((e) => {
