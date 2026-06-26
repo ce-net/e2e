@@ -157,17 +157,17 @@ fi
 # --------------------------------------------------------------------------------------------------
 say "COMMUNITY BAN: quorum of peers, no mods"
 OUTCAST=${ID[4]}
-OPID=$(tcli_try "$API0" "$T0" post --board general --title "unpopular" --body "controversial take")
+OPID=$(tcli_try "$API4" "$T0" post --board general --title "unpopular" --body "controversial take")
 # A single peer voting to ban does NOT ban (quorum is 3).
-tcli_try "$API0" "$T0" ban-vote general "$OUTCAST" >/dev/null
-ONE=$(tcli "$API0" "$T0" ban-standing general "$OUTCAST" 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['standing']['banned_raw'])" 2>/dev/null)
-[ "$ONE" = "False" ] && ok "one peer alone cannot ban (below quorum)" || bad "ban took effect below quorum"
-# Three distinct peers reach quorum → banned.
 tcli_try "$API1" "$T0" ban-vote general "$OUTCAST" >/dev/null
+ONE=$(tcli "$API1" "$T0" ban-standing general "$OUTCAST" 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['standing']['banned_raw'])" 2>/dev/null)
+[ "$ONE" = "False" ] && ok "one peer alone cannot ban (below quorum)" || bad "ban took effect below quorum"
+# Three DISTINCT peers (h1,h2,h3) reach quorum → banned.
 tcli_try "$API2" "$T0" ban-vote general "$OUTCAST" >/dev/null
+tcli_try "$API3" "$T0" ban-vote general "$OUTCAST" >/dev/null
 banned=0
 for _ in $(seq 1 10); do
-  B=$(tcli "$API0" "$T0" ban-standing general "$OUTCAST" 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['standing']['banned_raw'])" 2>/dev/null)
+  B=$(tcli "$API1" "$T0" ban-standing general "$OUTCAST" 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['standing']['banned_raw'])" 2>/dev/null)
   [ "$B" = "True" ] && { banned=1; break; }
   sleep 1
 done
