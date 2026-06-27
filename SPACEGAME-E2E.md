@@ -62,6 +62,40 @@ SPACEGAME_BIN=... SPACEGAME_URL=... NATIVE_PEER=1 e2e/spacegame-e2e.sh
 - **Browser leg.** Needs Node + Playwright (`npm i` installs chromium) and a deployed frontend whose
   origin boots the WASM node or proxies `/ce` to a CE node.
 
+## The gap these missed — and the deploy smoke gate (READ THIS)
+
+Leif, verbatim: *"THE E2E TESTS SHOULD HAVE CAUGHT THIS WHY NOT?? FIX SO IT DOES."*
+
+spa.ce-net.com shipped three **browser-only, deploy-only** regressions that every test above passed
+through:
+
+1. **wasm wouldn't boot** — recent `rust-lld` emits the function table with a fixed max (`min == max`), so
+   wasm-bindgen's runtime `table.grow()` for closures failed. Invisible to `cargo test`; only fails when a
+   browser instantiates the module.
+2. **wasm crashed on a Retina canvas** — surface (2970 px) exceeded the WebGL2 max texture size (2048).
+   Needs a real GPU; headless Playwright/CI has none.
+3. **a joining player's ship never arrived** — the live SSE bridge through **nginx + Cloudflare** delivered
+   nothing to the browser, while the node itself self-delivered fine. The whole *backend* was green.
+
+Why the existing legs missed all three: the VM leg and the bot test against **fresh/local nodes**, never
+the **deployed edge** (the real `spa.ce-net.com` → Cloudflare → nginx → hub → node). The Playwright leg
+runs a **local build**, not the relay-built wasm, with **no GPU**, and — fatally — **none of it runs as a
+deploy gate** (it needs Hetzner VMs and is manual; CI only runs `cargo test`).
+
+**The fix:** [`spacegame/deploy/smoke.sh`](../spacegame/deploy/smoke.sh), wired as the **final, blocking
+step of `deploy/deploy.sh`** (`all` runs it; or `deploy.sh smoke`). It asserts, against the **LIVE URL**:
+
+1. the **served** wasm's function table is **growable** (catches regression 1, no browser needed);
+2. the page + `/ce` bridge are reachable;
+3. a **Join published through the public `/ce` bridge yields that node's ship back over the live SSE
+   stream within ~12 s** (catches regression 3 — the exact "no ship" the player saw).
+
+It runs **on the relay**, which can hold a streaming HTTP connection; a laptop/sandbox often buffers SSE
+and would false-fail (that buffering is itself why the bug was hard to see locally). A red smoke gate
+**fails the deploy** — so a broken browser path can never silently ship again. Regression 2 (GPU surface
+size) is now guarded in code (`size_canvas` caps the drawing buffer at 2048); a true headless-GPU test is
+the remaining nice-to-have.
+
 ## Mobile native (next)
 
 The browser leg proves **mobile-in-browser** today. **Native mobile** (a packaged iOS/Android app that
