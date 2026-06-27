@@ -34,6 +34,7 @@ jobs:
       # path on ce-rs + ce-storage (which in turn need ce-iam-core and the optional ce-pin manifest).
       - { name: Checkout ce-hub,     uses: actions/checkout@v4, with: { repository: ce-net/ce-hub,     path: ce-net/ce-hub } }
       - { name: Checkout ce-iam,     uses: actions/checkout@v4, with: { repository: ce-net/ce-iam,     path: ce-net/ce-iam } }
+      - { name: Checkout ce-secrets-rs, uses: actions/checkout@v4, with: { repository: ce-net/ce-secrets-rs, path: ce-net/ce-secrets-rs } }
       - { name: Checkout ce-pin,     uses: actions/checkout@v4, with: { repository: ce-net/ce-pin,     path: ce-net/ce-pin } }
       - { name: Checkout ce-worker,  uses: actions/checkout@v4, with: { repository: ce-net/ce-worker,  path: ce-net/ce-worker } }
       - { name: Checkout ce-gov,     uses: actions/checkout@v4, with: { repository: ce-net/ce-gov,     path: ce-net/ce-gov } }
@@ -135,9 +136,11 @@ jobs:
       - { name: Checkout ce,        uses: actions/checkout@v4, with: { repository: ce-net/ce,        path: ce-net/ce } }
       - { name: Checkout rdev,      uses: actions/checkout@v4, with: { repository: ce-net/rdev,      path: ce-net/rdev } }
       - { name: Checkout ce-rs,     uses: actions/checkout@v4, with: { repository: ce-net/ce-rs,     path: ce-net/ce-rs } }
-      # ce-expose depends by path on ce-iam-core (../ce-iam/crates/ce-iam-core); without it the
-      # feature-gated ingress build fails and the ingress red team can't stand up its front door.
+      # ce-expose depends by path on ce-iam-core (../ce-iam/crates/ce-iam-core), which in turn pulls
+      # ce-secrets-rs; without them the feature-gated ingress build fails and the ingress red team
+      # can't stand up its front door.
       - { name: Checkout ce-iam,    uses: actions/checkout@v4, with: { repository: ce-net/ce-iam,    path: ce-net/ce-iam } }
+      - { name: Checkout ce-secrets-rs, uses: actions/checkout@v4, with: { repository: ce-net/ce-secrets-rs, path: ce-net/ce-secrets-rs } }
       - { name: Checkout ce-expose, uses: actions/checkout@v4, with: { repository: ce-net/ce-expose, path: ce-net/ce-expose } }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
