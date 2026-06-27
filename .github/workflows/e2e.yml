@@ -17,7 +17,7 @@ jobs:
     env:
       CE_BIN:         ${{ github.workspace }}/ce-net/ce/target/release/ce
       EXPOSE_BIN:     ${{ github.workspace }}/ce-net/ce-expose/target/release/ce-expose
-      HUB_BIN:        ${{ github.workspace }}/ce-net/web/ce-hub/target/release/ce-hub
+      HUB_BIN:        ${{ github.workspace }}/ce-net/ce-hub/target/release/ce-hub
       CE_STORAGE_BIN: ${{ github.workspace }}/ce-net/ce-storage/target/release/ce-storage
       WORKER_JS:      ${{ github.workspace }}/ce-net/ce-worker/worker.js
       WORKER_DIR:     ${{ github.workspace }}/ce-net/ce-worker
@@ -30,7 +30,11 @@ jobs:
       - { name: Checkout ce,         uses: actions/checkout@v4, with: { repository: ce-net/ce,         path: ce-net/ce } }
       - { name: Checkout ce-rs,      uses: actions/checkout@v4, with: { repository: ce-net/ce-rs,      path: ce-net/ce-rs } }
       - { name: Checkout ce-storage, uses: actions/checkout@v4, with: { repository: ce-net/ce-storage, path: ce-net/ce-storage } }
-      - { name: Checkout web,        uses: actions/checkout@v4, with: { repository: ce-net/web,         path: ce-net/web } }
+      # ce-hub is now its own repo (extracted from web/); it builds from ce-net/ce-hub and depends by
+      # path on ce-rs + ce-storage (which in turn need ce-iam-core and the optional ce-pin manifest).
+      - { name: Checkout ce-hub,     uses: actions/checkout@v4, with: { repository: ce-net/ce-hub,     path: ce-net/ce-hub } }
+      - { name: Checkout ce-iam,     uses: actions/checkout@v4, with: { repository: ce-net/ce-iam,     path: ce-net/ce-iam } }
+      - { name: Checkout ce-pin,     uses: actions/checkout@v4, with: { repository: ce-net/ce-pin,     path: ce-net/ce-pin } }
       - { name: Checkout ce-worker,  uses: actions/checkout@v4, with: { repository: ce-net/ce-worker,  path: ce-net/ce-worker } }
       - { name: Checkout ce-gov,     uses: actions/checkout@v4, with: { repository: ce-net/ce-gov,     path: ce-net/ce-gov } }
       - { name: Checkout ce-tabnet,  uses: actions/checkout@v4, with: { repository: ce-net/ce-tabnet,  path: ce-net/ce-tabnet } }
@@ -43,7 +47,7 @@ jobs:
           workspaces: |
             ce-net/ce -> target
             ce-net/ce-storage -> target
-            ce-net/web/ce-hub -> target
+            ce-net/ce-hub -> target
             ce-net/ce-expose -> target
       - uses: actions/setup-node@v4
         with:
@@ -51,7 +55,7 @@ jobs:
       - name: Build binaries
         run: |
           (cd ce-net/ce         && cargo build --release -p ce)
-          (cd ce-net/web/ce-hub && cargo build --release)
+          (cd ce-net/ce-hub     && cargo build --release)
           (cd ce-net/ce-storage && cargo build --release --features gateway)
           # ce-expose's public ingress front door (axum) is feature-gated; build it in so the e2e
           # exercises the `ce-expose ingress` subcommand. Path-deps ../ce-rs and ../ce/crates/* are
@@ -131,6 +135,9 @@ jobs:
       - { name: Checkout ce,        uses: actions/checkout@v4, with: { repository: ce-net/ce,        path: ce-net/ce } }
       - { name: Checkout rdev,      uses: actions/checkout@v4, with: { repository: ce-net/rdev,      path: ce-net/rdev } }
       - { name: Checkout ce-rs,     uses: actions/checkout@v4, with: { repository: ce-net/ce-rs,     path: ce-net/ce-rs } }
+      # ce-expose depends by path on ce-iam-core (../ce-iam/crates/ce-iam-core); without it the
+      # feature-gated ingress build fails and the ingress red team can't stand up its front door.
+      - { name: Checkout ce-iam,    uses: actions/checkout@v4, with: { repository: ce-net/ce-iam,    path: ce-net/ce-iam } }
       - { name: Checkout ce-expose, uses: actions/checkout@v4, with: { repository: ce-net/ce-expose, path: ce-net/ce-expose } }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2

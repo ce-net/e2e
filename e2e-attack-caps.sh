@@ -142,10 +142,14 @@ else
   # seconds to be reachable (we retry only on transport "not reachable", never on a clean "denied").
   RDEV() { HOME="$ROOT/atk-home" "$RDEV_BIN" --node "http://127.0.0.1:$ATK_API" "$@" 2>&1; }
   rdev_try() {
-    # rdev_try <expect-substr> <verb...> ; echoes "HIT"/"MISS"/"UNREACH" + leaves $RDEV_OUT set.
+    # rdev_try <tag> <verb...> ; echoes "DENIED"/"OTHER"/"UNREACH" + leaves $RDEV_OUT set.
+    # The first arg is a human-readable tag (ignored); the rest is the rdev verb, run through the
+    # RDEV helper (which pins HOME and points the client at the ATTACKER node). It must NOT be exec'd
+    # directly — doing so ran the bare tag as a command ("x: command not found"), leaving $out empty
+    # so every attack fell through to OTHER and spuriously FAILED.
     local i out
     for i in $(seq 1 12); do
-      out=$("$@")
+      out=$(RDEV "${@:2}")
       RDEV_OUT="$out"
       if echo "$out" | grep -qiE 'denied|refused|not authorized|unauthorized|capability|expired|revoked'; then
         echo "DENIED"; return 0

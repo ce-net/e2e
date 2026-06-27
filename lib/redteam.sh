@@ -185,10 +185,14 @@ rt_mesh_converged() {
   local drift=${1:-4} num=${2:-3} den=${3:-4}
   local hs mn mx up
   hs=$(rt_mesh_heights)
-  read -r mn mx <<<"$(echo "$hs" | tr ' ' '\n' | grep -v '^-1$' | grep -v '^None$' | sort -n | awk 'NR==1{m=$1}{M=$1}END{print m" "M}')"
+  # NOTE: $hs is built with a leading space, so `tr ' ' '\n'` yields an empty first line. That empty
+  # line must be filtered here too (alongside -1/None) — otherwise it sorts first and becomes a bogus
+  # "minimum", emptying $mn and shifting every downstream field so the alive count reads empty and the
+  # health gate spuriously fails (`[ "" -ge N ]` errors). The `up` count below already excludes '^$'.
+  read -r mn mx <<<"$(echo "$hs" | tr ' ' '\n' | grep -vE '^(-1|None)$' | grep -v '^$' | sort -n | awk 'NR==1{m=$1}{M=$1}END{print m" "M}')"
   up=$(echo "$hs" | tr ' ' '\n' | grep -vc -e '^-1$' -e '^None$' -e '^$')
   echo "$mn $mx $up"
-  [ "${mn:-0}" -ge 1 ] && [ $(( ${mx:-0} - ${mn:-0} )) -le "$drift" ] && [ "$up" -ge $((RT_N*num/den)) ]
+  [ "${mn:-0}" -ge 1 ] && [ $(( ${mx:-0} - ${mn:-0} )) -le "$drift" ] && [ "${up:-0}" -ge $((RT_N*num/den)) ]
 }
 
 # --------------------------------------------------------------------------------------------------
@@ -206,22 +210,25 @@ rt_mesh_converged() {
 #     rt_forge POST 8000 /jobs/bid '{...}' -H "authorization: Bearer $CE_API_TOKEN"
 rt_forge() {
   local method=$1 api=$2 path=$3 body=$4; shift 4
-  curl -s -o /dev/null -w '%{http_code}' --max-time 8 \
+  # Pipe the body through stdin (--data-binary @-) rather than as a -d argument: oversized-payload
+  # attacks (TR3) craft multi-megabyte bodies that blow past ARG_MAX ("curl: Argument list too long")
+  # when passed on the command line, which masked the real test result.
+  printf '%s' "$body" | curl -s -o /dev/null -w '%{http_code}' --max-time 8 \
     -X "$method" "http://127.0.0.1:$api$path" \
     -H 'content-type: application/json' \
     "$@" \
-    -d "$body"
+    --data-binary @-
 }
 
 # rt_forge_body <method> <api-port> <path> <json-body> [extra curl args...]
 #   Like rt_forge but echoes the RESPONSE BODY (for asserting an error message / a leaked field).
 rt_forge_body() {
   local method=$1 api=$2 path=$3 body=$4; shift 4
-  curl -s --max-time 8 \
+  printf '%s' "$body" | curl -s --max-time 8 \
     -X "$method" "http://127.0.0.1:$api$path" \
     -H 'content-type: application/json' \
     "$@" \
-    -d "$body"
+    --data-binary @-
 }
 
 # rt_alive <pid>  -> 0 if the process is still running. Used to assert "no panic / no crash" after a
