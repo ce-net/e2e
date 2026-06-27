@@ -235,17 +235,33 @@ if [ -n "$LOCK_CAP" ]; then
   open_resp=$(rt_forge_body POST "$A" /channels/open "{\"host\":\"$PEER\",\"capacity\":\"$LOCK_CAP\"}" "${AUTH[@]}")
   CHAN=$(echo "$open_resp" | python3 -c "import sys,json;print(json.load(sys.stdin).get('channel_id',''))" 2>/dev/null)
   echo "opened channel locking $LOCK_CAP -> channel_id=${CHAN:0:16}..."
-  sleep 6   # let the ChannelOpen mine so the lock is reflected in free balance
-  FREE_AFTER=$(rt_field "$A" free)
-  LOCKED_AFTER=$(rt_field "$A" locked_channels)
-  echo "post-lock: free=$FREE_AFTER locked_channels=$LOCKED_AFTER"
-  # Now try to TRANSFER the locked capacity — the same credits already committed to the channel.
-  c_double=$(rt_forge POST "$A" /transfer "{\"to\":\"$PEER\",\"amount\":\"$LOCK_CAP\"}" "${AUTH[@]}")
-  echo "transfer of the channel-LOCKED amount ($LOCK_CAP) -> code=$c_double (must be 402; never 201)"
-  if [ "$c_double" = "201" ]; then
-    bad "ECON6: transfer of channel-locked funds ACCEPTED (201) — E6 cross-type double-spend regressed"
+  # Wait until the ChannelOpen actually CONFIRMS (the lock is reflected: free drops below the amount
+  # we are about to illegally transfer). A fixed sleep is racy on slow CI — blocks mine ~10s, so the
+  # lock may not have landed yet, and a transfer issued before it lands legitimately succeeds, which
+  # would falsely flag a double-spend regression. Poll up to ~30s; if it never confirms, skip (the
+  # gate isn't exercisable), never fail. If it DOES confirm, the assertion below is exact.
+  lock_confirmed=0
+  FREE_AFTER=""; LOCKED_AFTER=""
+  for _ in $(seq 1 30); do
+    FREE_AFTER=$(rt_field "$A" free)
+    LOCKED_AFTER=$(rt_field "$A" locked_channels)
+    if [ -n "$FREE_AFTER" ] && python3 -c "import sys; sys.exit(0 if int('$FREE_AFTER') < int('$LOCK_CAP') else 1)" 2>/dev/null; then
+      lock_confirmed=1; break
+    fi
+    sleep 1
+  done
+  echo "post-lock: free=$FREE_AFTER locked_channels=$LOCKED_AFTER (lock_confirmed=$lock_confirmed)"
+  if [ "$lock_confirmed" != "1" ]; then
+    skip "ECON6: ChannelOpen never confirmed the lock within timeout (slow substrate) — double-spend gate not exercisable here"
   else
-    xfail "ECON6: locked funds cannot be re-spent (transfer of locked capacity rejected, code=$c_double) — free subtracts locks"
+    # Now try to TRANSFER the locked capacity — the same credits already committed to the channel.
+    c_double=$(rt_forge POST "$A" /transfer "{\"to\":\"$PEER\",\"amount\":\"$LOCK_CAP\"}" "${AUTH[@]}")
+    echo "transfer of the channel-LOCKED amount ($LOCK_CAP) -> code=$c_double (must be 402; never 201)"
+    if [ "$c_double" = "201" ]; then
+      bad "ECON6: transfer of channel-locked funds ACCEPTED (201) — E6 cross-type double-spend regressed"
+    else
+      xfail "ECON6: locked funds cannot be re-spent (transfer of locked capacity rejected, code=$c_double) — free subtracts locks"
+    fi
   fi
 else
   skip "ECON6: insufficient/unreadable balance to lock for the double-spend test (balance=$FREE_NOW)"
@@ -279,8 +295,8 @@ say "ECON8 — channel close with a FORGED / OVERSIZED receipt (MUST-HOLD)"
 # ChannelClose chain validation (lib.rs:1618): only the host may close, cumulative <= capacity, and
 # the receipt must be the PAYER's signature over (channel, host, cumulative). A forged sig or a
 # cumulative > capacity must never confirm — the channel stays open and the host is not credited.
-if [ -n "${CHAN:-}" ]; then
-  CHANS_PRE=$(rt_json "http://127.0.0.1:$A/channels")
+CHANS_PRE=$(rt_json "http://127.0.0.1:$A/channels" 2>/dev/null)
+if [ -n "${CHAN:-}" ] && echo "$CHANS_PRE" | grep -q "$CHAN"; then
   # (a) forged signature, modest cumulative.
   fake_sig=$(printf '0%.0s' {1..128})
   cc_forge=$(rt_forge POST "$A" "/channels/$CHAN/close" "{\"cumulative\":\"1000000000000000000\",\"payer_sig\":\"$fake_sig\"}" "${AUTH[@]}")

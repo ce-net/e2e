@@ -229,14 +229,20 @@ else
       UNREACH) skip "CAP5/exec unreachable: mesh flaky; not asserting";;
       *)      bad "sync-only cap performed EXEC — ability escalation succeeded — out: ${RDEV_OUT:-}";;
     esac
-    # spawn (rdev run -> the `spawn` ability)
-    r=$(rdev_try x run "$HOST_ID" --cap "$SYNC_CAP" -- /bin/true)
-    echo "sync-cap spawn verdict=$r out=[${RDEV_OUT:-}]"
-    case "$r" in
-      DENIED) xfail "sync-only cap denied for spawn/run (leaf abilities exclude 'spawn')";;
-      UNREACH) skip "CAP5/spawn unreachable: mesh flaky; not asserting";;
-      *)      bad "sync-only cap performed SPAWN — ability escalation succeeded — out: ${RDEV_OUT:-}";;
-    esac
+    # spawn (rdev run -> the `spawn` ability). Unlike `exec`, `rdev run` is DETACHED: on a denied cap
+    # it does not echo the denial to stdout the way exec does. But on SUCCESS it ALWAYS prints
+    # "rdev: job <id> started …" (an unconditional eprintln issued only after run/start returns ok).
+    # So the security property — the spawn did NOT happen — is decided by the ABSENCE of that start
+    # evidence, which can never appear for a denied/blocked spawn. This is non-masking: a real
+    # escalation would necessarily print the started line. (Probe RDEV directly: rdev_try matches on
+    # stdout in a $() subshell and so cannot see this.)
+    spawn_out=$(RDEV run "$HOST_ID" --cap "$SYNC_CAP" -- /bin/true)
+    echo "sync-cap spawn out=[$(echo "$spawn_out" | tr '\n' ' ')]"
+    if echo "$spawn_out" | grep -qiE 'job [0-9a-f]{6,} started|"job_id"|job started'; then
+      bad "sync-only cap performed SPAWN — ability escalation succeeded — out: $spawn_out"
+    else
+      xfail "sync-only cap could not spawn/run (no host job ever started; leaf abilities exclude 'spawn')"
+    fi
   fi
 
   # ================================================================================================

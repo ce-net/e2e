@@ -37,6 +37,8 @@ jobs:
       - { name: Checkout ce-secrets-rs, uses: actions/checkout@v4, with: { repository: ce-net/ce-secrets-rs, path: ce-net/ce-secrets-rs } }
       - { name: Checkout ce-pin,     uses: actions/checkout@v4, with: { repository: ce-net/ce-pin,     path: ce-net/ce-pin } }
       - { name: Checkout ce-worker,  uses: actions/checkout@v4, with: { repository: ce-net/ce-worker,  path: ce-net/ce-worker } }
+      # ce-worker's worker.js imports @ce-net/sdk, declared as file:../ce-ts; check out + build ce-ts.
+      - { name: Checkout ce-ts,      uses: actions/checkout@v4, with: { repository: ce-net/ce-ts,      path: ce-net/ce-ts } }
       - { name: Checkout ce-gov,     uses: actions/checkout@v4, with: { repository: ce-net/ce-gov,     path: ce-net/ce-gov } }
       - { name: Checkout ce-tabnet,  uses: actions/checkout@v4, with: { repository: ce-net/ce-tabnet,  path: ce-net/ce-tabnet } }
       - { name: Checkout ce-sched,   uses: actions/checkout@v4, with: { repository: ce-net/ce-sched,   path: ce-net/ce-sched } }
@@ -67,6 +69,13 @@ jobs:
         run: |
           chmod +x *.sh
           ./e2e-apps.sh
+      # Build @ce-net/sdk (ce-ts -> dist/) and link it into ce-worker so worker.js can import it.
+      # Without this the worker's `import { ... } from '@ce-net/sdk'` fails ERR_MODULE_NOT_FOUND.
+      - name: build @ce-net/sdk + link into ce-worker
+        if: always()
+        run: |
+          (cd ce-net/ce-ts && npm install && npm run build)
+          (cd ce-net/ce-worker && npm install)
       - name: native worker over the hub
         if: always()
         working-directory: ce-net/e2e

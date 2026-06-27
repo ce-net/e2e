@@ -235,7 +235,10 @@ declare -a MALFORMED=(
   '/mesh-deploy|{"node_id":"xyz","cpu_cores":-1}'               # bad node id + negative
   '/mesh/send|{"node_id":"00","topic":1,"payload_hex":true}'    # type confusion
   "/mesh/send|$BIG"                                             # oversized non-JSON body
-  '/blobs|'"$(head -c 200000 /dev/zero | tr '\0' 'B')"          # oversized raw blob body
+  # NOTE: /blobs is intentionally NOT probed here. It is a content-addressed store whose whole job is
+  # to accept arbitrary raw bytes and return 201 (the CID). A 200 KB body is valid input, not a
+  # malformed mutator payload, so a 2xx there is correct behaviour — it belongs to a size-limit test
+  # (the 128 MB cap), not this robust-decode panic-resistance probe.
 )
 panic_seen=0; bad_status=0
 for entry in "${MALFORMED[@]}"; do
